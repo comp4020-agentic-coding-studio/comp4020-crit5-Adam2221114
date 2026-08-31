@@ -23,10 +23,23 @@
     </header>
     <main>
       <h1 class="visually-hidden">Rescue</h1>
-      <canvas id="game" aria-label="Archery rescue game"></canvas>
-      <div id="hud" aria-hidden="true"></div>
-      <div id="overlay" class="overlay" hidden>
-        <button id="restart" type="button">RESTART</button>
+      <div id="board">
+        <canvas id="game" aria-label="Archery rescue game"></canvas>
+        <div id="hud" aria-hidden="true"></div>
+        <div id="overlay" class="overlay" hidden>
+          <img id="fail-meme" class="fail-meme" src="./loser.jpg" alt="" hidden />
+          <button id="restart" type="button">RESTART</button>
+        </div>
+        <div id="card" class="card" hidden aria-hidden="true">
+          <span class="card-title"></span>
+          <span class="card-subtitle"></span>
+        </div>
+        <div id="start-screen" class="start-screen">
+          <div class="start-card">
+            <h2 class="game-title">RESCUE SHOT</h2>
+            <button id="start-button" type="button" class="start-button">START CHALLENGE</button>
+          </div>
+        </div>
       </div>
     </main>
     <script type="module" src="./main.ts"></script>

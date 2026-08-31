@@ -6,14 +6,18 @@ body {
   margin: 0;
   height: 100vh;
   overflow: hidden;
-  background: #12141c;
+  background: #d8d3c8;
   font-family: system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 main {
   position: relative;
-  width: 100%;
-  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .visually-hidden {
@@ -23,6 +27,15 @@ main {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
+}
+
+#board {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  box-shadow:
+    0 1.5rem 3rem rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 #game {
@@ -43,25 +56,42 @@ main {
 
 #hud {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
+  top: 0.9rem;
+  left: 0.9rem;
   display: flex;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 0.6rem;
   pointer-events: none;
 }
 
 #hud .arrow-pip {
-  width: 1.4rem;
-  height: 0.35rem;
-  background: #e8dcc0;
-  border-radius: 999px;
-  transform: skewX(-20deg);
+  width: 1.6rem;
+  height: 1.6rem;
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(20, 15, 8, 0.45));
   transition: opacity 0.15s ease;
 }
 
+#hud .arrow-pip .pip-shaft,
+#hud .arrow-pip .pip-head,
+#hud .arrow-pip .pip-fletch {
+  fill: #4a3826;
+  stroke: #2e1c10;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
 #hud .arrow-pip.spent {
-  opacity: 0.2;
-  background: #4a4a52;
+  opacity: 0.25;
+}
+
+#hud .arrow-pip.spent .pip-shaft,
+#hud .arrow-pip.spent .pip-head,
+#hud .arrow-pip.spent .pip-fletch {
+  fill: #7a7a82;
+  stroke: #4a4a52;
 }
 
 .overlay {
@@ -69,11 +99,27 @@ main {
   inset: 0;
   align-items: center;
   justify-content: center;
+  gap: 1.4rem;
   background: rgba(10, 10, 14, 0.55);
 }
 
 .overlay:not([hidden]) {
   display: flex;
+}
+
+/* Level 2 FAILED-only reaction image, shown beside the RESTART button --
+   sized off the board's own width so it scales sensibly at any viewport
+   without a media query. */
+.fail-meme {
+  width: 26%;
+  max-width: 220px;
+  height: auto;
+  border-radius: 0.6rem;
+  box-shadow: 0 0.6rem 1.4rem rgba(0, 0, 0, 0.5);
+}
+
+.fail-meme[hidden] {
+  display: none;
 }
 
 .overlay button {
@@ -90,4 +136,182 @@ main {
 
 .overlay button:hover {
   background: #fff;
+}
+
+.card {
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(10, 10, 14, 0.75);
+  pointer-events: none;
+}
+
+.card:not([hidden]) {
+  display: flex;
+}
+
+.card-title,
+.card-subtitle {
+  display: block;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #e8dcc0;
+  text-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.5);
+  transform: scale(0.6);
+  opacity: 0;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 1.4, 0.4, 1),
+    opacity 0.2s ease;
+}
+
+.card-title {
+  font-size: 2.4rem;
+}
+
+.card-subtitle {
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+}
+
+.card-subtitle:empty {
+  display: none;
+}
+
+.card.show .card-title,
+.card.show .card-subtitle {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.card.show .card-subtitle {
+  transition-delay: 0.08s;
+}
+
+/* the escalation beats (DIFFICULTY SPIKE / BEAT LEVEL 2) — hazard red/orange
+   instead of the neutral cream every other card uses, so the one moment of
+   real difficulty escalation reads as visually distinct from routine level
+   intros */
+.card.hype {
+  background: rgba(30, 8, 4, 0.82);
+}
+
+.card.hype .card-title,
+.card.hype .card-subtitle {
+  color: #ff5a3c;
+  text-shadow: 0 0 0.6rem rgba(255, 90, 60, 0.8);
+}
+
+.card.hype .card-title {
+  transform: scale(0.4) rotate(-2deg);
+}
+
+.card.hype.show .card-title {
+  transform: scale(1) rotate(0deg);
+}
+
+.start-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(12, 20, 28, 0.72), rgba(8, 12, 18, 0.85));
+  transition: opacity 0.25s ease;
+}
+
+.start-screen.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.6rem;
+  padding: 2.2rem 3rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(160deg, #a4703c 0%, #8a5a2e 45%, #5c3a20 100%);
+  border: 1px solid #2a1608;
+  box-shadow:
+    0 1rem 2.5rem rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 235, 200, 0.15);
+}
+
+.game-title {
+  margin: 0;
+  font-size: 2.8rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #fff4e2;
+  text-shadow: 0 0.25rem 0.6rem rgba(0, 0, 0, 0.5);
+}
+
+.start-button {
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 1rem 2.4rem;
+  border-radius: 0.5rem;
+  border: 2px solid #15181b;
+  background: linear-gradient(180deg, #9aa4ad 0%, #5c6670 45%, #454e57 100%);
+  color: #12141c;
+  cursor: pointer;
+  box-shadow:
+    0 0.3rem 0 #15181b,
+    0 0.5rem 0.9rem rgba(0, 0, 0, 0.4);
+  border-bottom: 4px solid #f4c430;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.15s ease;
+}
+
+.start-button:hover {
+  background: linear-gradient(180deg, #b6bfc7 0%, #6c7680 45%, #545d66 100%);
+  transform: translateY(-0.1rem);
+  box-shadow:
+    0 0.4rem 0 #15181b,
+    0 0.7rem 1.1rem rgba(0, 0, 0, 0.45);
+}
+
+.start-button:active {
+  transform: translateY(0.25rem);
+  box-shadow:
+    0 0.05rem 0 #15181b,
+    0 0.15rem 0.4rem rgba(0, 0, 0, 0.4);
+}
+
+/* a brief, self-clearing impact beat between Level 1 landing and the
+   Level 2 reveal — a shake plus a hazard-orange flash pulled from the
+   obstacle-panel palette, removed immediately after so nothing lingers
+   into Level 2 gameplay */
+@keyframes board-shake {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-0.6rem, 0.3rem); }
+  40% { transform: translate(0.5rem, -0.4rem); }
+  60% { transform: translate(-0.4rem, -0.2rem); }
+  80% { transform: translate(0.3rem, 0.3rem); }
+  100% { transform: translate(0, 0); }
+}
+
+@keyframes board-flash {
+  0% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+#board.impact {
+  animation: board-shake 0.45s ease-in-out;
+}
+
+#board.impact::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 210, 150, 0.9), rgba(255, 90, 60, 0.5) 60%, transparent 100%);
+  animation: board-flash 0.45s ease-out forwards;
+  pointer-events: none;
 }

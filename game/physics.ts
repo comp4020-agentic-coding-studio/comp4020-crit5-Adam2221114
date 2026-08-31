@@ -2,11 +2,11 @@
 // function, used by every level — level difficulty comes from geometry
 // (rope/obstacle/ground layout), never from retuning these numbers.
 //
-// Phase 0 scope: rope cutting, person-hit embedding (with a pendulum impulse
-// applied by the caller), and ground embedding.
-// Solid-surface ricochet (walls/obstacles) is a later level's addition, but
-// CollisionEvent already reserves a "wall" case so that addition doesn't
-// change this module's shape.
+// Scope: rope cutting, person-hit embedding (with a pendulum impulse applied
+// by the caller), ground embedding, and wall ricochet (a wall reflects the
+// arrow — same velocity-changing bounce math regardless of level — until its
+// bounce budget or speed runs out, at which point it embeds like any other
+// solid hit).
 
 export interface Point {
   x: number;
@@ -95,6 +95,7 @@ export interface RopeSegment {
 }
 
 export interface PersonHitbox {
+  id: string;
   center: Point;
   radius: number;
 }
@@ -108,14 +109,20 @@ export interface ArrowState {
   position: Point;
   velocity: Point;
   embedded: boolean;
+  /** wall bounces used so far — caps ricochet so an arrow can't bounce forever */
+  bounces: number;
+}
+
+export interface Wall {
+  id: string;
+  a: Point;
+  b: Point;
 }
 
 export type CollisionEvent =
   | { type: "rope"; ropeId: string; at: Point }
-  | { type: "person"; at: Point }
+  | { type: "person"; personId: string; at: Point }
   | { type: "ground"; at: Point }
-  // Unused until a level supplies wall/obstacle geometry — kept here so
-  // ricochet slots into this union rather than reshaping it.
   | { type: "wall"; at: Point };
 
 export interface StepResult {
@@ -232,36 +239,70 @@ export function applyArrowToPerson(
   return at ? { hit: true, at } : { hit: false, at: null };
 }
 
+/** A hit test against a solid wall segment. `normal` faces back toward
+ * `from` (the incoming side) so the caller can reflect velocity off it
+ * regardless of which side the arrow approaches from. */
+export function applyArrowToWall(
+  wall: Wall,
+  from: Point,
+  to: Point,
+): { hit: boolean; at: Point | null; normal: Point | null } {
+  const at = segmentIntersection(from, to, wall.a, wall.b);
+  if (!at) return { hit: false, at: null, normal: null };
+  const along = subtract(wall.b, wall.a);
+  const wallLength = length(along);
+  if (wallLength === 0) return { hit: false, at: null, normal: null };
+  let normal = { x: -along.y / wallLength, y: along.x / wallLength };
+  const toFrom = subtract(from, wall.a);
+  if (normal.x * toFrom.x + normal.y * toFrom.y < 0) {
+    normal = { x: -normal.x, y: -normal.y };
+  }
+  return { hit: true, at, normal };
+}
+
 /**
  * Advances the arrow by `dt` seconds. Within that step, resolves collisions
  * in chronological order along the movement segment: a rope cut doesn't stop
  * the arrow — it keeps flying from that point with its remaining motion, and
- * may go on to hit something else in the same step. A person hit or the
- * ground both stop and embed it (Phase 0 has no walls yet to bounce off).
+ * may go on to hit something else in the same step. A wall reflects the
+ * arrow (velocity changes, so the remainder of the tick is recomputed from
+ * the bounce point) until its bounce budget or speed runs out, at which
+ * point it embeds. A person hit or the ground both stop and embed it
+ * immediately.
  */
 export function stepArrow(
   arrow: ArrowState,
   ropes: RopeSegment[],
-  person: PersonHitbox,
+  people: PersonHitbox[],
   ground: GroundPlane,
+  walls: Wall[],
   dt: number,
 ): StepResult {
   if (arrow.embedded) {
     return { arrow, events: [], ropes };
   }
 
-  const velocity = { x: arrow.velocity.x, y: arrow.velocity.y + PHYSICS.gravity * dt };
-  const naiveEnd = { x: arrow.position.x + velocity.x * dt, y: arrow.position.y + velocity.y * dt };
+  let velocity = { x: arrow.velocity.x, y: arrow.velocity.y + PHYSICS.gravity * dt };
+  let remainingDt = dt;
+  let naiveEnd = {
+    x: arrow.position.x + velocity.x * remainingDt,
+    y: arrow.position.y + velocity.y * remainingDt,
+  };
 
   let segmentStart = { ...arrow.position };
   let workingRopes = ropes;
+  let bounces = arrow.bounces;
   const events: CollisionEvent[] = [];
   const EPSILON = 1e-3;
 
+  type Outcome = "stop" | "continue" | "bounced";
+
   // Re-scan the remainder of this tick's movement after every pass-through
-  // collision, so one fast step can legitimately touch several things.
-  for (let guard = 0; guard < ropes.length + 2; guard++) {
-    type Candidate = { at: Point; dist: number; apply: () => void; stop: boolean };
+  // or bounce collision, so one fast step can legitimately touch several
+  // things (e.g. clip a wall, then cut a rope, then embed in the ground).
+  const guardLimit = ropes.length + walls.length + people.length + PHYSICS.maxBounces + 4;
+  for (let guard = 0; guard < guardLimit; guard++) {
+    type Candidate = { at: Point; dist: number; apply: () => Outcome };
     const candidates: Candidate[] = [];
 
     for (const rope of workingRopes) {
@@ -270,23 +311,27 @@ export function stepArrow(
         candidates.push({
           at: result.at,
           dist: distanceAlong(segmentStart, result.at),
-          stop: false,
           apply: () => {
             workingRopes = workingRopes.map((r) => (r.id === rope.id ? result.rope : r));
             events.push({ type: "rope", ropeId: rope.id, at: result.at! });
+            return "continue";
           },
         });
       }
     }
 
-    const personHit = applyArrowToPerson(person, segmentStart, naiveEnd);
-    if (personHit.hit && personHit.at) {
-      candidates.push({
-        at: personHit.at,
-        dist: distanceAlong(segmentStart, personHit.at),
-        stop: true,
-        apply: () => events.push({ type: "person", at: personHit.at! }),
-      });
+    for (const person of people) {
+      const personHit = applyArrowToPerson(person, segmentStart, naiveEnd);
+      if (personHit.hit && personHit.at) {
+        candidates.push({
+          at: personHit.at,
+          dist: distanceAlong(segmentStart, personHit.at),
+          apply: () => {
+            events.push({ type: "person", personId: person.id, at: personHit.at! });
+            return "stop";
+          },
+        });
+      }
     }
 
     const groundHit = groundIntersection(segmentStart, naiveEnd, ground.y);
@@ -294,25 +339,73 @@ export function stepArrow(
       candidates.push({
         at: groundHit,
         dist: distanceAlong(segmentStart, groundHit),
-        stop: true,
-        apply: () => events.push({ type: "ground", at: groundHit }),
+        apply: () => {
+          events.push({ type: "ground", at: groundHit });
+          return "stop";
+        },
       });
+    }
+
+    for (const wall of walls) {
+      const wallHit = applyArrowToWall(wall, segmentStart, naiveEnd);
+      if (wallHit.hit && wallHit.at && wallHit.normal) {
+        const at = wallHit.at;
+        const normal = wallHit.normal;
+        candidates.push({
+          at,
+          dist: distanceAlong(segmentStart, at),
+          apply: () => {
+            bounces += 1;
+            events.push({ type: "wall", at });
+            const vDotN = velocity.x * normal.x + velocity.y * normal.y;
+            const reflected = {
+              x: (velocity.x - 2 * vDotN * normal.x) * PHYSICS.bounceRestitution,
+              y: (velocity.y - 2 * vDotN * normal.y) * PHYSICS.bounceRestitution,
+            };
+            if (bounces > PHYSICS.maxBounces || length(reflected) < PHYSICS.embedSpeedThreshold) {
+              return "stop";
+            }
+            // Velocity changed, so the rest of the tick's straight-line
+            // path has to be recomputed from here — time and distance are
+            // linearly related within a uniform-velocity pass, so the
+            // travelled fraction of this pass gives the leftover time.
+            const passLength = Math.max(distanceAlong(segmentStart, naiveEnd), EPSILON);
+            const travelledFraction = distanceAlong(segmentStart, at) / passLength;
+            remainingDt = remainingDt * (1 - travelledFraction);
+            velocity = reflected;
+            naiveEnd = { x: at.x + velocity.x * remainingDt, y: at.y + velocity.y * remainingDt };
+            return "bounced";
+          },
+        });
+      }
     }
 
     if (candidates.length === 0) break;
     candidates.sort((a, b) => a.dist - b.dist);
     const earliest = candidates[0];
-    earliest.apply();
+    const outcome = earliest.apply();
 
-    if (earliest.stop) {
+    if (outcome === "stop") {
       return {
-        arrow: { position: earliest.at, velocity: { x: 0, y: 0 }, embedded: true },
+        arrow: { position: earliest.at, velocity: { x: 0, y: 0 }, embedded: true, bounces },
         events,
         ropes: workingRopes,
       };
     }
 
-    // Continue from just past the collision point, same velocity, remainder of the tick.
+    if (outcome === "bounced") {
+      // naiveEnd/velocity/remainingDt already point past the bounce;
+      // nudge the start along the *new* direction of travel.
+      const speed = length(velocity);
+      if (speed < EPSILON) break;
+      segmentStart = {
+        x: earliest.at.x + (velocity.x / speed) * EPSILON,
+        y: earliest.at.y + (velocity.y / speed) * EPSILON,
+      };
+      continue;
+    }
+
+    // Pass-through (rope cut): same velocity/naiveEnd, just nudge forward.
     const remaining = subtract(naiveEnd, earliest.at);
     const remainingLength = length(remaining);
     if (remainingLength < EPSILON) break;
@@ -321,7 +414,7 @@ export function stepArrow(
   }
 
   return {
-    arrow: { position: naiveEnd, velocity, embedded: false },
+    arrow: { position: naiveEnd, velocity, embedded: false, bounces },
     events,
     ropes: workingRopes,
   };

@@ -41,7 +41,7 @@ say what they are for.
   `pnpm dlx linkinator ./dist --silent --skip "^https?://(?!localhost|127)"`
   before committing.
 
-## C5 current work — session handoff (L1 physical hanging-person system done, not yet committed)
+## C5 current work — session handoff (L1 physics + reference-guided visual pass done, not yet committed)
 
 This section is a practical continuation record, not a project plan. Read it
 before touching this repo again; it replaces needing the prior conversation.
@@ -159,11 +159,17 @@ rescue aesthetic, side-view, fixed composition per level (not a side-scroller).
 
 In `game/physics.ts`: `gravity: 900`, `drawPower: 8`, `maxDrawDistance: 140`
 (max launch speed 1120 px/s), `arrowRadius: 4`, `embedSpeedThreshold: 40`,
-`bounceRestitution: 0.55` (reserved), `maxBounces: 3` (reserved). At full
-draw from the L1 anchor (150,420) to the rope at x=700, roughly 32°–49°
-elevation cuts the rope cleanly, ~30°–31° clips the person instead, and 50°+
-overshoots and wastes the arrow — a real difficulty curve from geometry
-alone, not from hidden retuning.
+`bounceRestitution: 0.55` (reserved), `maxBounces: 3` (reserved).
+
+**Elevation bands (re-measured after the visual/composition pass — the
+previous 32°–49°/~30–31°/50°+ numbers are stale, from before `ROPE_TOP` was
+moved down to compact the layout; see that section below for why).** At full
+draw from the L1 anchor `(150, 470)` to the rope/person column at x=700
+(rope now spans world y≈240–430, person column ≈430–481), sweeping elevation
+via a throwaway Node script against `launchVelocity`/`previewPoint`:
+roughly **11°–15° clips the person**, **16°–35° cuts the rope cleanly**, and
+**36°+ overshoots** and wastes the arrow. Still a real difficulty curve from
+geometry alone — `PHYSICS` itself was not retuned.
 
 ### Browser bugs found and fixed this session
 
@@ -335,30 +341,196 @@ exact pre-session state via `git diff --stat`, zero diff):
 - Landing on the platform produced the WON overlay with the "AGAIN" button,
   confirming the rescue-completion path still works end to end.
 
+### Reference-guided visual/composition pass (session after the physical hanging-person system)
+
+The user shared a screenshot of a different archery-rescue mobile game as a
+*composition and readability* reference — explicitly not to copy its colors,
+character, UI chrome (score/pause/star), tutorial hand graphic, clouds, or
+water, and explicitly no tutorial text (C5 forbids explicit instruction).
+Comparing our built L1 against it (screenshotted at both marking viewports)
+found the gap was structural, not just palette: a dark/moody sky read as a
+tech demo rather than a light casual puzzle; the rescue structure floated
+with no support reaching the platform; a large dead vertical gap sat between
+the bow, the person, and the ground; the drawn arm "tie" point was a
+hardcoded `r*1.6` offset rather than the true `BODY_TIE_OFFSET` the physics
+uses, a small latent draw/physics mismatch; and the bow read as similarly
+weighted to the person rather than the obvious focal element.
+
+Changes made, all in `main.ts`/`styles.css`, none in `game/physics.ts`:
+- **Compacted the vertical layout** by translating (not rescaling) the whole
+  rope/person assembly down: `ROPE_TOP` moved from world `(700, 90)` to
+  `(700, 240)`, with `REST_ROPE_BOTTOM`/`REST_PERSON_CENTER` shifted by the
+  same 150-unit delta. `ROPE_LENGTH` (190), `BODY_TIE_OFFSET` (25), and
+  `PIVOT_RADIUS` (215) are numerically unchanged — same swing feel, just
+  moved. This is the same "translate, don't rescale" technique already used
+  once for `Y_SHIFT`. Because this changes the elevation angle needed to
+  reach the rope from the fixed anchor, the bands were re-measured (see
+  "Physics constants" above), not assumed.
+- **Grounded the rescue structure**: a new `drawScaffold()` draws two static
+  support posts from `ROPE_TOP` down to `ground.y` (same technique as
+  `drawBowStand`'s posts) — purely decorative, no new state or collision
+  geometry — so the crossbeam now reads as sitting on a built structure
+  instead of floating.
+- **Closed the tie-point/rope-draw gap**: `drawPerson`'s tie point now uses
+  the real `BODY_TIE_OFFSET` constant instead of a hardcoded `r*1.6`, so the
+  drawn arm/rope junction lands exactly on `state.rope.b` by construction,
+  at any pendulum angle.
+- **Decoupled visual size from the hitbox**: a new `PERSON_VISUAL_SCALE`
+  (1.3) enlarges only the drawing offsets (arms/legs/torso/head/head radius)
+  in `drawPerson`. The tie point stays based on the unscaled
+  `BODY_TIE_OFFSET`, and `state.person.radius` (`PERSON_RADIUS = 20`, what
+  hit-testing actually uses) is untouched — the person reads bigger without
+  changing hit difficulty.
+- **Bow prominence**: drawn bow arc radius 60 → 74 (with matching string/tip
+  geometry), idle-pulse glow strengthened. `ANCHOR`/`HOTSPOT_RADIUS`/drag
+  geometry untouched — drawing-only.
+- **Light, casual, legible palette**: replaced the dark-navy canvas wash and
+  world-sky gradients with a light daytime-sky gradient (own hues, not the
+  reference's); darkened the rope stroke and all arrow strokes
+  (ground-embedded, person-embedded, nocked, flying) for contrast against
+  the new light sky; added a thin dark outline to the person's torso/head
+  for "pop"; updated `styles.css`'s `body` background to match the frame
+  color, and gave `#hud .arrow-pip` a subtle dark outline so it stays
+  legible against the lighter canvas. Wood tones (bow/scaffold/platform)
+  were left close to their existing warm-brown hues.
+
+Browser-verified (temporary Playwright script driving real pointer
+drags against built `dist/`, then fully removed — `package.json`/
+`pnpm-lock.yaml` confirmed back to zero diff via `git diff --stat`) at both
+marking viewports, 1920×1080 and 390×844:
+- Cold load: light sky, grounded scaffold, compact layout with no dead gap,
+  bow reads as visually prominent, rope/person connected with no gap —
+  screenshotted and eyeballed at both sizes.
+- A shot in the newly-measured "cut" band (25° elevation, full draw) cut the
+  rope; the person fell and landed on the platform; WON/"AGAIN" appeared.
+- A shot in the newly-measured "clip" band (13° elevation, full draw) hit
+  the person instead: the arrow embedded and the person swung visibly on
+  the still-connected rope.
+- Five short/weak drags exhausted all 5 arrows without reaching the rope;
+  FAILED/"RESTART" appeared.
+
+**Still true**: machine-verified and screenshotted by the agent, but a human
+has not looked at this pass yet either. Don't treat it as final/approved.
+
+### Level 2 redesign: four-person ricochet rescue puzzle (session after the reference-guided visual pass)
+
+The old L2 (two ropes on one person) never justified the "DIFFICULTY SPIKE"
+transition out of L1. It's been completely replaced with a hard four-person,
+five-arrow puzzle, driven by a generalization of the single-person
+architecture rather than a bolt-on:
+
+- **`game/physics.ts`**: `PersonHitbox` gained `id: string`; `CollisionEvent`'s
+  `"person"` variant gained `personId: string`; `stepArrow`'s `person`
+  parameter became `people: PersonHitbox[]`, iterated the same way `ropes`/
+  `walls` already were. No other collision-resolution logic changed. Ricochet
+  itself (wall bounce/embed via `PHYSICS.bounceRestitution`/`maxBounces`) was
+  already implemented and untouched — L2 is the first level to actually
+  require it.
+- **`main.ts`**: `Profile` now holds `persons: PersonGeometry[]` (each one an
+  independent vertical rope + pendulum, built by `buildPersonGeometry`) and
+  `obstacles: Wall[]` (solid timber the player reasons about, separate from
+  invisible boundary walls, both fed into the same collidable `walls` list).
+  `GameState.person/pendulum/activeRopeIndex` (the old "two ropes, one
+  person, handoff" mechanism) is gone entirely — replaced by
+  `people: PersonRuntime[]`, one per profile person, each independently
+  swinging/falling/landing. Win = every person landed; fail = arrows
+  exhausted **and** the world has settled (`flying === null` and nobody is
+  still mid-fall) — the settle guard avoids a false FAILED on the arrow that
+  triggers the last person's fall in the same frame it embeds.
+  `drawScaffold()`/`drawObstacles()`/`drawRope()`/`drawPerson()` all loop
+  over people/obstacles now instead of assuming one of each.
+- `PHYSICS`/`PENDULUM` constants were **not touched** — L2's difficulty comes
+  entirely from the new geometry.
+
+**Landscape geometry** (world 960×540, same bow anchor `(170,381)`,
+`ground.y 460` as L1): two vertical timber walls (`wallA` at x=560, `wallB`
+at x=800) plus an overhead beam (`830,140`–`900,140`) sit between the bow and
+three of the four people. `p1` (anchor `380,140`) is in the clear — a direct
+shot cuts it, same as L1. `p2` (anchor `650,230`), `p3` (anchor `830,280`),
+and `p4` (anchor `920,120`, the highest/tightest) all sit behind `wallA`/
+`wallB` — no elevation reaches their rope directly; every reachable
+trajectory must overshoot past the walls, bounce off the right boundary or
+`wallB`'s face, and cut the rope on the return leg.
+
+**Portrait geometry** (world 480×960, bow anchor `(100,660)`, `ground.y
+800`): `wallA` (x=230), `wallC` (x=320), `wallB` (x=350) block `p2`/`p3`/`p4`,
+which are clustered close together near the top of the frame (anchors
+`410,80` / `380,120` / `440,40`) specifically so a well-aimed bounce shot can
+sweep through all three — `p1` (anchor `180,420`) is the direct/easy one.
+
+**Verified 5-arrow solutions** (via a throwaway Node script driving the real
+`stepArrow`/`launchVelocity` against these exact numbers, then confirmed live
+in the browser — not hand math):
+
+- *Landscape, 2 arrows total, 3 spare*: 48° elevation at **0.9** draw
+  (not full draw) cuts `p1` directly, bounces once off the right boundary,
+  cuts `p4`, bounces once more off `wallB`'s face, and cuts `p3` — all in one
+  arrow. This band is **robust, not a single fragile angle**: it holds across
+  roughly 44°–54° at 0.85–0.9 draw (confirmed by a coarse sweep), unlike an
+  earlier full-draw 48° candidate that also worked in isolation but required
+  three corner-grazing bounces in one tick and broke under normal
+  pixel-rounding from a real mouse drag. A second arrow at 44° full draw then
+  passes harmlessly over `p1`'s already-cut rope, bounces once off the right
+  boundary, and cuts `p2` — clearing all four people in 2 of the 5 arrows.
+- *Portrait, 1 arrow*: 73°–73.25° elevation at full draw cuts all four ropes
+  in a single shot (the tight p2/p3/p4 cluster is what makes this possible);
+  74°–74.5° cuts three of the four (all via bounce).
+- Both of these are **bonus efficiency solutions**, not the only path — the
+  plan's baseline "one dedicated shot per person" (direct for `p1`, a
+  bounce-return for each of `p2`/`p3`/`p4`) is 4 arrows with 1 spare, and
+  remains available/robust independent of the above.
+
+**Browser-verified** (temporary Playwright script + `window.__gameDebug`
+polling hook, both added then fully removed — `package.json`/
+`pnpm-lock.yaml` confirmed back to zero diff via `git diff --stat`), at both
+1920×1080 and 390×844:
+- Cold load into L2 (via the unchanged L1→L2 "DIFFICULTY SPIKE" transition):
+  four independently-positioned people, multiple wood obstacles, all
+  visually distinct from L1's single rope.
+- The landscape 2-arrow sequence above: first arrow lands `p1`, `p4`, `p3`
+  (2 of those 3 rescues via ricochet); second arrow lands `p2` (also via
+  ricochet) — WON/"AGAIN" appears with all four on the ground.
+- The portrait 1-arrow quadruple cut — WON/"AGAIN" appears immediately.
+- Five deliberately weak/short draws exhaust all 5 arrows with nobody
+  rescued — FAILED/"RESTART" appears only after the fifth arrow, never
+  earlier.
+- RESTART (from FAILED) and AGAIN (from WON) both fully reset all four
+  ropes/people/arrows/obstacles to their initial state.
+- Zero console/page errors throughout, at both viewports.
+
+**One known caveat, accepted as-is**: the fragile full-draw 48° trajectory
+found first (three bounces grazing two corners in one tick) is real and
+reproducible from a script, but too sensitive to real pointer-drag rounding
+for reliable manual play — the robust 0.85–0.9-draw version above is what's
+actually meant to be found/used. A human player pulling to *not-quite-full*
+draw at roughly that elevation is a very natural thing to do, so this isn't
+expected to be a practical problem, but it's worth knowing the full-draw
+edge case exists and is intentionally not the one being relied on.
+
 ### Git / commit state (as of end of this session)
 
-- Last two commits: `a7c72bd` harness carry-forward, `407c490` spec: no-
-  tutorial contract test. Both already committed.
-- **Uncommitted in the working tree right now**: `game/` (new — physics.ts,
-  physics.test.ts), `spec/rope-cutting.test.ts` (new), and modified
-  `CLAUDE.md`, `index.html`, `main.ts`, `styles.css`, `tsconfig.json` — all of
-  Phase 0, Phase 1, the visual/mobile pass, and this session's physical
-  hanging-person rework. Nothing has been committed across any of these
-  sessions yet. `pnpm check` is green on this uncommitted tree (5 files, 30
-  tests, typecheck clean, build succeeds), and
-  `pnpm dlx linkinator ./dist --silent --skip "^https?://(?!localhost|127)"`
-  is clean.
-- Repo remains private; not pushed.
+- Commit `e3ef2df` carries Phase 0, Phase 1, the original visual/mobile pass,
+  and the physical hanging-person/pendulum rework, all together (the user
+  asked for a pre-refactor checkpoint, but no such git boundary existed at
+  that point, so — after flagging this explicitly — everything was committed
+  together as-is per the user's choice). Pushed to `origin/main`.
+- **Uncommitted in the working tree right now**: `CLAUDE.md`, `main.ts`,
+  `styles.css`, `game/physics.ts`, `game/physics.test.ts`, `index.html` — the
+  reference-guided visual/composition pass, the physical hanging-person
+  system, and the four-person Level 2 redesign described above, none of
+  which have been committed yet. `pnpm check` is green (5 files, 34 tests,
+  typecheck clean, build succeeds). Not committed — commit only when
+  explicitly asked.
 
 ### Exact next task
 
-Get a human to actually open the built site and play L1 before anything else
-happens — specifically to sign off on the *physics* (does the pendulum swing
-feel right, do hits feel consequential, does the fall read as a real drop),
-not just the visuals (already flagged as unreviewed by a human in the
-section above). Only after that sign-off should L1 see further iteration
-(visual or physical) or should L2 begin. **Do not start L2, ricochet, or any
-further level before that approval.**
+The four-person Level 2 redesign is built and browser-verified (see above)
+but **a human has not played it yet**. Get a human to open the built site and
+play through L1 → L2 end to end before anything else happens: does the
+"DIFFICULTY SPIKE" into L2 feel earned by what's on screen, does the ricochet
+requirement read as fair rather than as a surprise, do the four rescues feel
+distinct from each other. Only after that sign-off should L2 see further
+iteration or should **L3 begin — do not start L3 before that approval.**
 
 ## This file is yours
 
